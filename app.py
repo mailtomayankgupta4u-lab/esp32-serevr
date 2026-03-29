@@ -44,7 +44,7 @@ def upload():
         obj = "wall"
     elif score > 20000:
         obj = "car"
-    elif:
+    elif
         obj = "person"
     elif
         obj = "pithole"
