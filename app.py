@@ -46,9 +46,9 @@ def upload():
         obj = "car"
     elif:
         obj = "person"
-    elif:
+    elif
         obj = "pithole"
-    elif:
+    elif
         obj = "stairs"
     else:
         obj = "obsatcle"
