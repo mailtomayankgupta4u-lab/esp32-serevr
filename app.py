@@ -1,55 +1,76 @@
-from flask import Flask, request
-import numpy as np
-import cv2
+from flask import Flask, request, jsonify
+import openai
+import requests
+import os
 
 app = Flask(__name__)
 
-@app.route('/upload', methods=['POST'])
-def upload():
-    image_data = request.data
-    np_arr = np.frombuffer(image_data, np.uint8)
-    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+# API KEYS
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    height, width, _ = img.shape
+TWILIO_SID = os.getenv("TWILIO_SID")
+TWILIO_AUTH = os.getenv("TWILIO_AUTH")
+TWILIO_NUMBER = os.getenv("TWILIO_NUMBER")
+USER_NUMBER = os.getenv("USER_NUMBER")
 
-    # Divide image
-    left = img[:, :width//3]
-    center = img[:, width//3:2*width//3]
-    right = img[:, 2*width//3:]
+ELEVEN_API = os.getenv("ELEVEN_API")
 
-    def analyze(region):
-        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        return np.sum(edges)
+# 🔷 MAIN API
+@app.route('/process', methods=['POST'])
+def process():
 
-    scores = {
-        "LEFT": analyze(left),
-        "CENTER": analyze(center),
-        "RIGHT": analyze(right)
-    }
+    data = request.json
+    detected_object = data.get("object", "unknown")
+    pulse = data.get("pulse", 70)
+    danger = data.get("danger", False)
 
-    direction = max(scores, key=scores.get)
-    score = scores[direction]
+    # 🔥 AI TEXT GENERATION
+    ai_response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "user", "content": f"Describe danger: {detected_object}"}
+        ]
+    )
 
-    # Object classification (improved logic)
-    if score > 70000:
-        obj = "wall"
-    elif score > 40000:
-        obj = "car"
-    elif score > 20000:
-        obj = "obstacle"
-    else:
-        obj = "person"
+    text = ai_response['choices'][0]['message']['content']
 
-    # Fake distance estimation (camera-based)
-    if score > 70000:
-        distance = "2-3 meters"
-    elif score > 40000:
-        distance = "3-6 meters"
-    else:
-        distance = "6-10 meters"
+    # 🔥 DECISION ENGINE
+    emergency = False
+    if pulse > 110 or danger:
+        emergency = True
 
-    return f"{obj} detected {direction} at approx {distance}"
+    # 🔥 SMS ALERT
+    if emergency:
+        requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json",
+            auth=(TWILIO_SID, TWILIO_AUTH),
+            data={
+                "From": TWILIO_NUMBER,
+                "To": USER_NUMBER,
+                "Body": f"Emergency! {text}"
+            }
+        )
+
+    # 🔥 TEXT TO SPEECH
+    tts_response = requests.post(
+        "https://api.elevenlabs.io/v1/text-to-speech",
+        headers={
+            "xi-api-key": ELEVEN_API,
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": text,
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.5}
+        }
+    )
+
+    audio_url = "https://your-server/audio/latest.mp3"  # placeholder
+
+    return jsonify({
+        "text": text,
+        "audio": audio_url,
+        "emergency": emergency
+    })
 
 if __name__ == "__main__":
     app.run()
